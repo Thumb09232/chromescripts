@@ -4,7 +4,7 @@ echo "=== Chromebook Firmware Backup (Read‑Only) ==="
 
 # Step 1: Dump firmware to /tmp
 echo "[1/3] Reading firmware (this is safe, WP does not block reads)..."
-sudo flashrom -p host -r /tmp/bios.bin
+sudo flashrom -p internal -r /tmp/bios.bin
 if [ $? -ne 0 ]; then
     echo "Error: flashrom could not read the firmware."
     exit 1
