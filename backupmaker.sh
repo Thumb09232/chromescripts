@@ -1,35 +1,88 @@
 #!/bin/bash
 
-echo "=== Chromebook Firmware Backup (Read‑Only) ==="
+echo "=== Chromebook Firmware Backup (Auto-Install + Retry) ==="
 
-# Step 1: Dump firmware to /tmp
-echo "[1/3] Reading firmware (this is safe, WP does not block reads)..."
-sudo flashrom -p internal -r /tmp/bios.bin
-if [ $? -ne 0 ]; then
-    echo "Error: flashrom could not read the firmware."
+TMP_FILE="/tmp/bios.bin"
+
+# ----------------------------
+# Step 1: Ensure flashrom exists
+# ----------------------------
+echo "[1/5] Checking for flashrom..."
+
+if ! command -v flashrom &> /dev/null; then
+    echo "[!] flashrom not found. Attempting install..."
+
+    # Try common ChromeOS/Linux package methods
+    if command -v apt-get &> /dev/null; then
+        sudo apt-get update
+        sudo apt-get install -y flashrom
+
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y flashrom
+
+    elif command -v yum &> /dev/null; then
+        sudo yum install -y flashrom
+
+    else
+        echo "[!] No supported package manager found."
+        echo "    Please install flashrom manually."
+        exit 1
+    fi
+fi
+
+# Re-check after install attempt
+if ! command -v flashrom &> /dev/null; then
+    echo "Error: flashrom still not available."
     exit 1
 fi
-echo "Firmware saved to /tmp/bios.bin"
 
-# Step 2: Try to find USB mount point
+echo "[✓] flashrom is available"
+
+# ----------------------------
+# Step 2: Try primary dump method
+# ----------------------------
+echo "[2/5] Attempting firmware read (host interface)..."
+
+flashrom -p host -r "$TMP_FILE"
+STATUS=$?
+
+# ----------------------------
+# Step 3: Fallback if failed
+# ----------------------------
+if [ $STATUS -ne 0 ]; then
+    echo "[!] Host method failed, trying internal interface..."
+
+    flashrom -p internal -r "$TMP_FILE"
+    STATUS=$?
+fi
+
+# ----------------------------
+# Step 4: Final check
+# ----------------------------
+if [ $STATUS -ne 0 ]; then
+    echo "Error: Both flashrom methods failed."
+    exit 1
+fi
+
+echo "[✓] Firmware dump completed: $TMP_FILE"
+
+# ----------------------------
+# Step 5: Save to USB or fallback
+# ----------------------------
 USB_PATH=$(ls /media/removable 2>/dev/null | head -n 1)
 
 if [ -n "$USB_PATH" ]; then
-    FULL_USB_PATH="/media/removable/$USB_PATH"
-    echo "[2/3] USB detected at: $FULL_USB_PATH"
-    DEST="$FULL_USB_PATH/backup.bin"
+    DEST="/media/removable/$USB_PATH/backup.bin"
+    echo "[3/5] USB detected: $USB_PATH"
 else
-    echo "[2/3] No USB detected — saving backup to Downloads instead."
     DEST="$HOME/Downloads/backup.bin"
+    echo "[3/5] No USB detected — using Downloads"
 fi
 
-# Step 3: Copy backup to destination
-echo "[3/3] Copying backup to: $DEST"
-cp /tmp/bios.bin "$DEST"
+cp "$TMP_FILE" "$DEST"
 
 if [ $? -eq 0 ]; then
-    echo "Backup successfully saved to:"
-    echo "$DEST"
+    echo "[✓] Backup saved to: $DEST"
 else
     echo "Error copying backup."
     exit 1
